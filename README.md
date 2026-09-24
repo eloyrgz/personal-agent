@@ -38,9 +38,9 @@ Use an external connection with:
 The router is intentionally simple at this stage:
 
 - training-related messages are sent to the Training Coach API
-- home-related messages are recognized and prepared for future Home Assistant integration
+- home-related messages are forwarded to Home Assistant's Conversation API (`/api/conversation/process`), which resolves entities/areas and executes the intent
 - all other messages are answered by OpenAI
 
 ## Notes
 
-This project does not alter the existing Training Coach repo or Telegram configuration. It instead provides a new orchestration layer that can be extended with Supabase memory and HA actions.
+This project does not alter the existing Training Coach repo or Telegram configuration. It instead provides a new orchestration layer that can be extended with Supabase memory.

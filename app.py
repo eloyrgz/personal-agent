@@ -18,6 +18,8 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 TRAINING_COACH_URL = os.getenv("TRAINING_COACH_URL", "http://127.0.0.1:8000/chat")
 HOME_ASSISTANT_URL = os.getenv("HOME_ASSISTANT_URL", "http://homeassistant.local:8123")
+HOME_ASSISTANT_TOKEN = os.getenv("HOME_ASSISTANT_TOKEN")
+HOME_ASSISTANT_LANGUAGE = os.getenv("HOME_ASSISTANT_LANGUAGE", "es")
 
 SESSION_HEADER_NAMES = (
     "x-conversation-id",
@@ -256,15 +258,37 @@ async def call_training_coach(message: str, conversation_id: str) -> str:
 
 
 async def call_home_assistant(message: str) -> str:
-    if not HOME_ASSISTANT_URL:
+    if not HOME_ASSISTANT_URL or not HOME_ASSISTANT_TOKEN:
         return "Home Assistant is not configured yet."
 
-    return (
-        "He detectado una solicitud de la casa. "
-        "La integración con Home Assistant está preparada para una siguiente fase "
-        "y aún no está conectada a un backend real."
-        f" Mensaje recibido: {message}"
+    # Delegate entity/intent resolution to HA's own Assist conversation agent
+    # instead of reimplementing device/area matching here.
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{HOME_ASSISTANT_URL}/api/conversation/process",
+                headers={
+                    "Authorization": f"Bearer {HOME_ASSISTANT_TOKEN}",
+                    "Content-Type": "application/json",
+                },
+                json={"text": message, "language": HOME_ASSISTANT_LANGUAGE},
+            )
+    except httpx.HTTPError as exc:
+        print(f"personal-agent: Home Assistant request failed: {exc}")
+        return "No pude conectar con Home Assistant en este momento."
+
+    if response.status_code != 200:
+        print(f"personal-agent: Home Assistant returned {response.status_code}: {response.text}")
+        return "Home Assistant devolvió un error al procesar la solicitud."
+
+    data = response.json()
+    speech = (
+        data.get("response", {})
+        .get("speech", {})
+        .get("plain", {})
+        .get("speech")
     )
+    return speech or "Home Assistant no devolvió una respuesta."
 
 
 @app.get("/health")
