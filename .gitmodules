@@ -1,0 +1,3 @@
+[submodule "training-coach-agent"]
+	path = training-coach-agent
+	url = https://github.com/eloyrgz/training-coach-agent.git
