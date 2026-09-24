@@ -33,6 +33,14 @@ Use an external connection with:
 - URL: http://host.containers.internal:8101/v1
 - model: personal-agent
 
+## Remote access
+
+Open WebUI is reachable over HTTPS from outside the LAN at
+`https://webui.err-hass.duckdns.org/`, proxied by the existing Home Assistant
+Nginx add-on on the Raspberry Pi via SNI on port 443 (same port already used
+for Home Assistant remote access). See `/memories/repo/infra-raspberry-pi.md`
+for the add-on/config details.
+
 ## Current behavior
 
 The router is intentionally simple at this stage:
