@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import os
 import time
@@ -8,6 +9,9 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+
+from fact_extraction import extract_facts
+from memory import build_memory
 
 load_dotenv()
 
@@ -20,6 +24,12 @@ TRAINING_COACH_URL = os.getenv("TRAINING_COACH_URL", "http://127.0.0.1:8000/chat
 HOME_ASSISTANT_URL = os.getenv("HOME_ASSISTANT_URL", "http://homeassistant.local:8123")
 HOME_ASSISTANT_TOKEN = os.getenv("HOME_ASSISTANT_TOKEN")
 HOME_ASSISTANT_LANGUAGE = os.getenv("HOME_ASSISTANT_LANGUAGE", "es")
+MEMORY_HISTORY_LIMIT = int(os.getenv("MEMORY_HISTORY_LIMIT", "10"))
+
+# Persistent memory (Supabase-backed if configured, no-op otherwise). Built
+# once at import time so the DB connection/embedding model is reused across
+# requests.
+memory = build_memory()
 
 SESSION_HEADER_NAMES = (
     "x-conversation-id",
@@ -210,7 +220,32 @@ async def classify_route_via_llm(conversation_text: str) -> str:
     return "general"
 
 
-async def call_openai(message: str) -> str:
+def build_general_messages(user_message: str, history: list[dict], facts: list[dict]) -> list[dict]:
+    """Assemble the OpenAI messages array: recalled facts + recent history.
+
+    `history` is the persisted conversation (oldest first, already including
+    the current user turn); `facts` are semantically relevant long-term
+    memories recalled for this message.
+    """
+    openai_messages = []
+    if facts:
+        facts_text = "\n".join(f"- {fact['content']}" for fact in facts)
+        openai_messages.append(
+            {
+                "role": "system",
+                "content": f"Known facts about the user, recalled from memory:\n{facts_text}",
+            }
+        )
+
+    if history:
+        openai_messages.extend({"role": turn["role"], "content": turn["content"]} for turn in history)
+    else:
+        openai_messages.append({"role": "user", "content": user_message})
+
+    return openai_messages
+
+
+async def call_openai(messages: list[dict]) -> str:
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
 
@@ -223,7 +258,7 @@ async def call_openai(message: str) -> str:
             },
             json={
                 "model": OPENAI_MODEL,
-                "messages": [{"role": "user", "content": message}],
+                "messages": messages,
             },
         )
 
@@ -289,6 +324,20 @@ async def call_home_assistant(message: str) -> str:
         .get("speech")
     )
     return speech or "Home Assistant no devolvió una respuesta."
+
+
+async def remember_facts(conversation_id: str, user_message: str, assistant_reply: str) -> None:
+    """Extract and persist durable facts from a general-route turn.
+
+    Runs as a background task so it never adds latency to the user-facing
+    response; failures are logged and otherwise swallowed.
+    """
+    try:
+        facts = await extract_facts(user_message, assistant_reply)
+        for fact in facts:
+            memory.save_fact(fact, conversation_id=conversation_id)
+    except Exception as exc:
+        print(f"personal-agent: fact extraction/storage failed: {exc}")
 
 
 @app.get("/health")
@@ -358,19 +407,30 @@ async def chat_completions(request: dict, http_request: Request) -> dict[str, An
         # instead of assuming "general" outright.
         route = await classify_route_via_llm(conversation_text)
 
+    memory.log_message(conversation_id, "user", str(user_message), route=route)
+
     if route == "training":
         response_text = await call_training_coach(str(user_message), conversation_id)
     elif route == "home":
         response_text = await call_home_assistant(str(user_message))
     else:
         try:
-            response_text = await call_openai(str(user_message))
+            history = memory.get_recent_messages(conversation_id, limit=MEMORY_HISTORY_LIMIT)
+            facts = memory.search_facts(str(user_message))
+            openai_messages = build_general_messages(str(user_message), history, facts)
+            response_text = await call_openai(openai_messages)
         except HTTPException as exc:
             print(f"personal-agent: general route failed: {exc.detail}")
             response_text = (
                 "Lo siento, no pude procesar tu mensaje en este momento. "
                 "Intenta de nuevo en un momento."
             )
+
+    memory.log_message(conversation_id, "assistant", response_text, route=route)
+
+    if route == "general":
+        # Fire-and-forget: never block the response on fact extraction.
+        asyncio.create_task(remember_facts(conversation_id, str(user_message), response_text))
 
     return {
         "id": f"chatcmpl-{uuid.uuid4()}",

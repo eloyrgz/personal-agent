@@ -47,8 +47,30 @@ The router is intentionally simple at this stage:
 
 - training-related messages are sent to the Training Coach API
 - home-related messages are forwarded to Home Assistant's Conversation API (`/api/conversation/process`), which resolves entities/areas and executes the intent
-- all other messages are answered by OpenAI
+- all other messages are answered by OpenAI, with recent conversation history and semantically recalled long-term facts included as context
+
+## Persistent memory (Supabase)
+
+Personal Agent persists its own memory in the same Supabase Postgres project
+already used by `training-coach-agent`, using the shared
+[`pgvector-agent-memory`](https://github.com/eloyrgz/pgvector-agent-memory)
+library (`memory.py`):
+
+- **Conversation history** — every turn, across all routes, is logged to
+  `conversation_messages`. The general (OpenAI) route uses this to give the
+  model real multi-turn context instead of only the latest message.
+- **Long-term semantic memory** — after each general-route reply, a small
+  background LLM call (`fact_extraction.py`) pulls out durable facts worth
+  remembering (preferences, personal details, ongoing plans), embeds them,
+  and stores them in `agent_memories`. Future general-route messages recall
+  relevant facts via cosine-similarity search and feed them back to OpenAI as
+  context.
+
+Run `sql/personal_agent_schema.sql` once against Supabase to create the
+required tables/extension, and set `SUPABASE_DB_URI` and/or
+`SUPABASE_POOLER_DB_URI` in `.env`. If neither is set, persistence is
+disabled automatically (no-op fallback) and the router behaves as before.
 
 ## Notes
 
-This project does not alter the existing Training Coach repo or Telegram configuration. It instead provides a new orchestration layer that can be extended with Supabase memory.
+This project does not alter the existing Training Coach repo or Telegram configuration. It instead provides a new orchestration layer with its own Supabase-backed memory.
