@@ -3,10 +3,6 @@
 		{
 			"name": "Personal Agent (router)",
 			"path": "."
-		},
-		{
-			"name": "Training Coach Agent (live/systemd copy)",
-			"path": "../Documents/GitHub/training-coach-agent"
 		}
 	],
 	"settings": {}

@@ -7,7 +7,7 @@ It is intentionally kept separate from the existing Training Coach repository an
 - general conversation via OpenAI
 - training questions via the Training Coach API
 - home automation requests via Home Assistant
-- future memory and context persistence
+- persisted conversation history and long-term facts
 
 ## Local setup
 
@@ -89,4 +89,5 @@ disabled automatically (no-op fallback) and the router behaves as before.
 
 ## Notes
 
-This project does not alter the existing Training Coach repo or Telegram configuration. It instead provides a new orchestration layer with its own Supabase-backed memory.
+The router keeps its own memory tables in Supabase; training questions are
+delegated to the separate Training Coach API.
