@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import os
+import re
 import time
 import uuid
 from typing import Any
@@ -163,9 +164,13 @@ def detect_route(message: str) -> str:
         "garage",
     ]
 
-    if any(keyword in text for keyword in training_keywords):
+    # Match at word start (digits allowed, e.g. "10km") so "plan" doesn't fire on "explanation".
+    def matches(keywords: list[str]) -> bool:
+        return any(re.search(rf"(?<![^\W\d_]){re.escape(keyword)}", text) for keyword in keywords)
+
+    if matches(training_keywords):
         return "training"
-    if any(keyword in text for keyword in home_keywords):
+    if matches(home_keywords):
         return "home"
     return "general"
 
@@ -173,7 +178,7 @@ def detect_route(message: str) -> str:
 ROUTE_LABELS = ("training", "home", "general")
 
 
-async def classify_route_via_llm(conversation_text: str) -> str:
+async def classify_route_via_llm(latest_message: str, recent_context: str) -> str:
     """Fallback classifier for messages the keyword router can't confidently place.
 
     Only called when no keyword matched, so it doesn't add cost/latency to the
@@ -184,13 +189,17 @@ async def classify_route_via_llm(conversation_text: str) -> str:
         return "general"
 
     prompt = (
-        "Classify the user's message into exactly one category: training, home, or general.\n"
+        "Classify the LATEST user message into exactly one category: training, home, or general.\n"
         "- training: endurance/sports training, activities, workouts, recovery, injury risk, "
         "fitness metrics (CTL/ATL/TSB, pace, distance, heart rate, etc.)\n"
         "- home: smart home control (lights, temperature, blinds, Home Assistant)\n"
         "- general: anything else\n"
+        "Use the previous conversation only to resolve short follow-ups that have no topic "
+        "of their own (e.g. 'and yesterday?'). If the latest message is about a different "
+        "topic than before, classify it by its own content.\n"
         "Respond with only the single category word, nothing else.\n\n"
-        f"Message: {conversation_text[-1000:]}"
+        f"Previous conversation:\n{recent_context[-1500:] or '(none)'}\n\n"
+        f"Latest message: {latest_message[-1000:]}"
     )
 
     try:
@@ -220,28 +229,23 @@ async def classify_route_via_llm(conversation_text: str) -> str:
     return "general"
 
 
-def build_general_messages(user_message: str, history: list[dict], facts: list[dict]) -> list[dict]:
-    """Assemble the OpenAI messages array: recalled facts + recent history.
+def format_facts(facts: list[dict]) -> str:
+    return "\n".join(f"- {fact['content']}" for fact in facts)
 
-    `history` is the persisted conversation (oldest first, already including
-    the current user turn); `facts` are semantically relevant long-term
-    memories recalled for this message.
-    """
+
+def build_general_messages(user_message: str, history: list[dict], facts: list[dict]) -> list[dict]:
+    """Assemble the OpenAI messages array: recalled facts + prior history + current turn."""
     openai_messages = []
     if facts:
-        facts_text = "\n".join(f"- {fact['content']}" for fact in facts)
         openai_messages.append(
             {
                 "role": "system",
-                "content": f"Known facts about the user, recalled from memory:\n{facts_text}",
+                "content": f"Known facts about the user, recalled from memory:\n{format_facts(facts)}",
             }
         )
 
-    if history:
-        openai_messages.extend({"role": turn["role"], "content": turn["content"]} for turn in history)
-    else:
-        openai_messages.append({"role": "user", "content": user_message})
-
+    openai_messages.extend(history)
+    openai_messages.append({"role": "user", "content": user_message})
     return openai_messages
 
 
@@ -275,12 +279,21 @@ async def call_openai(messages: list[dict]) -> str:
     return choices[0]["message"]["content"]
 
 
-async def call_training_coach(message: str, conversation_id: str) -> str:
+async def call_training_coach(
+    message: str, conversation_id: str, history: list[dict], facts: list[dict]
+) -> str:
+    # Send the shared cross-route history + recalled facts so the coach sees
+    # the same memory as the general route instead of only its own turns.
+    payload: dict[str, Any] = {
+        "message": message,
+        "conversation_id": conversation_id,
+        "history": history,
+    }
+    if facts:
+        payload["context"] = f"Known facts about the user, recalled from memory:\n{format_facts(facts)}"
+
     async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(
-            TRAINING_COACH_URL,
-            json={"message": message, "conversation_id": conversation_id},
-        )
+        response = await client.post(TRAINING_COACH_URL, json=payload)
 
     if response.status_code != 200:
         raise HTTPException(
@@ -292,9 +305,18 @@ async def call_training_coach(message: str, conversation_id: str) -> str:
     return result.get("reply", "No reply returned by Training Coach.")
 
 
-async def call_home_assistant(message: str) -> str:
+# Our conversation id -> HA Assist conversation id, so HA can resolve follow-ups
+# ("apágala") within the same chat.
+_ha_conversation_ids: dict[str, str] = {}
+
+
+async def call_home_assistant(message: str, conversation_id: str) -> str:
     if not HOME_ASSISTANT_URL or not HOME_ASSISTANT_TOKEN:
         return "Home Assistant is not configured yet."
+
+    payload = {"text": message, "language": HOME_ASSISTANT_LANGUAGE}
+    if conversation_id in _ha_conversation_ids:
+        payload["conversation_id"] = _ha_conversation_ids[conversation_id]
 
     # Delegate entity/intent resolution to HA's own Assist conversation agent
     # instead of reimplementing device/area matching here.
@@ -306,7 +328,7 @@ async def call_home_assistant(message: str) -> str:
                     "Authorization": f"Bearer {HOME_ASSISTANT_TOKEN}",
                     "Content-Type": "application/json",
                 },
-                json={"text": message, "language": HOME_ASSISTANT_LANGUAGE},
+                json=payload,
             )
     except httpx.HTTPError as exc:
         print(f"personal-agent: Home Assistant request failed: {exc}")
@@ -317,6 +339,8 @@ async def call_home_assistant(message: str) -> str:
         return "Home Assistant devolvió un error al procesar la solicitud."
 
     data = response.json()
+    if data.get("conversation_id"):
+        _ha_conversation_ids[conversation_id] = data["conversation_id"]
     speech = (
         data.get("response", {})
         .get("speech", {})
@@ -327,7 +351,7 @@ async def call_home_assistant(message: str) -> str:
 
 
 async def remember_facts(conversation_id: str, user_message: str, assistant_reply: str) -> None:
-    """Extract and persist durable facts from a general-route turn.
+    """Extract and persist durable facts from a conversation turn (any route).
 
     Runs as a background task so it never adds latency to the user-facing
     response; failures are logged and otherwise swallowed.
@@ -396,28 +420,37 @@ async def chat_completions(request: dict, http_request: Request) -> dict[str, An
             content={"error": "No user message found"},
         )
 
+    user_message = str(user_message)
     conversation_id = resolve_conversation_id(request, http_request, messages)
-    # Open WebUI resends the full history each turn, so route on the whole
-    # thread, not just the latest message, to keep topic-less follow-ups
-    # (e.g. "y el desnivel?") on the same agent as the rest of the conversation.
-    conversation_text = " ".join(str(message.get("content", "")) for message in messages)
-    route = detect_route(conversation_text)
-    if route == "general":
-        # Keyword router found no match — ask the LLM for a second opinion
-        # instead of assuming "general" outright.
-        route = await classify_route_via_llm(conversation_text)
 
-    memory.log_message(conversation_id, "user", str(user_message), route=route)
+    # Prior turns (all routes) from persistent memory; fall back to the
+    # history Open WebUI resends if persistence is disabled.
+    history = memory.get_recent_messages(conversation_id, limit=MEMORY_HISTORY_LIMIT)
+    if not history:
+        history = [
+            {"role": m["role"], "content": str(m.get("content", ""))}
+            for m in messages[:-1]
+            if m.get("role") in ("user", "assistant")
+        ][-MEMORY_HISTORY_LIMIT:]
+
+    # Route on the latest message only, so the conversation can switch between
+    # agents; the LLM fallback uses recent context to keep topic-less follow-ups
+    # (e.g. "y el desnivel?") on the previous agent.
+    route = detect_route(user_message)
+    if route == "general":
+        recent_context = "\n".join(f"{turn['role']}: {turn['content']}" for turn in history[-6:])
+        route = await classify_route_via_llm(user_message, recent_context)
+
+    facts = memory.search_facts(user_message)
+    memory.log_message(conversation_id, "user", user_message, route=route)
 
     if route == "training":
-        response_text = await call_training_coach(str(user_message), conversation_id)
+        response_text = await call_training_coach(user_message, conversation_id, history, facts)
     elif route == "home":
-        response_text = await call_home_assistant(str(user_message))
+        response_text = await call_home_assistant(user_message, conversation_id)
     else:
         try:
-            history = memory.get_recent_messages(conversation_id, limit=MEMORY_HISTORY_LIMIT)
-            facts = memory.search_facts(str(user_message))
-            openai_messages = build_general_messages(str(user_message), history, facts)
+            openai_messages = build_general_messages(user_message, history, facts)
             response_text = await call_openai(openai_messages)
         except HTTPException as exc:
             print(f"personal-agent: general route failed: {exc.detail}")
@@ -428,9 +461,8 @@ async def chat_completions(request: dict, http_request: Request) -> dict[str, An
 
     memory.log_message(conversation_id, "assistant", response_text, route=route)
 
-    if route == "general":
-        # Fire-and-forget: never block the response on fact extraction.
-        asyncio.create_task(remember_facts(conversation_id, str(user_message), response_text))
+    # Fire-and-forget: never block the response on fact extraction.
+    asyncio.create_task(remember_facts(conversation_id, user_message, response_text))
 
     return {
         "id": f"chatcmpl-{uuid.uuid4()}",
