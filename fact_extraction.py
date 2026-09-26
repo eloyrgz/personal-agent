@@ -42,7 +42,7 @@ async def extract_facts(user_message: str, assistant_reply: str) -> list[str]:
             response = await client.post(
                 f"{OPENAI_BASE_URL}/chat/completions",
                 headers={
-                    "Authorization": f"******",
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
                     "Content-Type": "application/json",
                 },
                 json={
