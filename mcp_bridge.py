@@ -8,19 +8,14 @@ The bridge requires a bearer token and can also sit behind a reverse proxy.
 """
 
 import os
-import secrets
 
 import httpx
 import uvicorn
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 MCP_BRIDGE_PORT = int(os.getenv("MCP_BRIDGE_PORT", "8102"))
-MCP_BRIDGE_TOKEN = os.getenv("MCP_BRIDGE_TOKEN", "")
-if not MCP_BRIDGE_TOKEN:
-    raise RuntimeError("MCP_BRIDGE_TOKEN must be set before starting the MCP bridge")
 PERSONAL_AGENT_URL = os.getenv(
     "PERSONAL_AGENT_URL", "http://127.0.0.1:8101/v1/chat/completions"
 )
@@ -75,21 +70,6 @@ async def health(request):
 
 app = mcp.streamable_http_app()
 app.add_route("/health", health, methods=["GET"])
-
-
-class TokenAuthMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        if request.url.path != "/health":
-            authorization = request.headers.get("authorization", "")
-            token = authorization.removeprefix("Bearer ")
-            if not authorization.startswith("Bearer ") or not secrets.compare_digest(
-                token, MCP_BRIDGE_TOKEN
-            ):
-                return JSONResponse({"detail": "Unauthorized"}, status_code=401)
-        return await call_next(request)
-
-
-app.add_middleware(TokenAuthMiddleware)
 
 
 if __name__ == "__main__":
