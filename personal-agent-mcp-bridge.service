@@ -1,0 +1,15 @@
+[Unit]
+Description=Personal Agent MCP Bridge
+After=network-online.target personal-agent-router.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/eloy/personal-agent
+EnvironmentFile=/home/eloy/personal-agent/.env
+ExecStart=/home/eloy/personal-agent/.venv/bin/python /home/eloy/personal-agent/mcp_bridge.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

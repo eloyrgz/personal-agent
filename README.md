@@ -26,19 +26,24 @@ source .venv/bin/activate
 uvicorn app:app --host 0.0.0.0 --port 8101
 ```
 
-For the local systemd-managed stack, register the Training Coach API unit once
-(the router, bridge, and Telegram bot units are already installed):
+For the local systemd-managed stack, register the API and MCP bridge units once
+(the router, Training Coach bridge, and Telegram bot units are already installed):
 
 ```bash
 ln -s "$PWD/training-coach-agent/training-coach-api.service" "$HOME/.config/systemd/user/training-coach-api.service"
+ln -s "$PWD/personal-agent-mcp-bridge.service" "$HOME/.config/systemd/user/personal-agent-mcp-bridge.service"
 systemctl --user daemon-reload
 systemctl --user enable training-coach-api.service
+systemctl --user enable personal-agent-mcp-bridge.service
 ```
+
+Set `MCP_BRIDGE_TOKEN` in `.env` to a long random secret. MCP clients must send
+it as `Authorization: Bearer <token>`; `/health` remains available without it.
 
 Then run `./stack.sh start`, `./stack.sh restart`, `./stack.sh stop`, or
 `./stack.sh status` from this directory. The script manages the Training Coach
-API, Personal Agent router, Training Coach bridge, and Telegram bot; it checks
-API readiness before starting the dependent services. Open WebUI is a separate
+API, Personal Agent router and MCP bridge, Training Coach bridge, and Telegram
+bot; it checks API readiness before starting the dependent services. Open WebUI is a separate
 container and is not restarted by this command. The local router service uses
 `training-coach-agent/.venv`, which has the embedding dependencies installed.
 

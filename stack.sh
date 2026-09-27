@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-services=(training-coach-api.service personal-agent-router.service training-coach-bridge.service training-coach-telegram.service)
+services=(training-coach-api.service personal-agent-router.service training-coach-bridge.service training-coach-telegram.service personal-agent-mcp-bridge.service)
 
 wait_for_health() {
     local name=$1 url=$2
@@ -22,12 +22,14 @@ case "${1:-}" in
         wait_for_health 'Training Coach API' http://127.0.0.1:8000/health
         systemctl --user "$1" personal-agent-router.service training-coach-bridge.service training-coach-telegram.service
         wait_for_health 'Personal Agent router' http://127.0.0.1:8101/health
+        systemctl --user "$1" personal-agent-mcp-bridge.service
+        wait_for_health 'Personal Agent MCP bridge' http://127.0.0.1:8102/health
         wait_for_health 'Training Coach bridge' http://127.0.0.1:8100/v1/models
         systemctl --user is-active --quiet "${services[@]}"
         printf 'Stack is running.\n'
         ;;
     stop)
-        systemctl --user stop personal-agent-router.service training-coach-bridge.service training-coach-telegram.service training-coach-api.service
+        systemctl --user stop personal-agent-mcp-bridge.service personal-agent-router.service training-coach-bridge.service training-coach-telegram.service training-coach-api.service
         ;;
     status)
         result=0

@@ -305,9 +305,56 @@ async def call_training_coach(
     return result.get("reply", "No reply returned by Training Coach.")
 
 
-# Our conversation id -> HA Assist conversation id, so HA can resolve follow-ups
-# ("apágala") within the same chat.
+# Our conversation id -> HA Assist conversation id (only useful with LLM-based HA agents).
 _ha_conversation_ids: dict[str, str] = {}
+
+
+async def rewrite_home_command(message: str, history: list[dict]) -> str:
+    """Turn a follow-up like "vuelve a apagarla" into a standalone HA command.
+
+    HA's built-in Assist agent matches fixed sentence patterns and can't resolve
+    pronouns, so the device must be spelled out. Falls back to the original text.
+    """
+    if not OPENAI_API_KEY or not history:
+        return message
+
+    recent_context = "\n".join(f"{turn['role']}: {turn['content']}" for turn in history[-6:])
+    prompt = (
+        "Rewrite the latest user message as a single, self-contained smart home command "
+        "for Home Assistant Assist, in the same language as the message. Replace pronouns "
+        "and references (e.g. 'apágala', 'otra vez', 'la misma') with the explicit device "
+        "and area from the conversation. Use simple imperative phrasing, e.g. "
+        "'apaga la luz de la vitrina'. If it is already self-contained, return it unchanged. "
+        "Respond with only the command.\n\n"
+        f"Conversation:\n{recent_context[-1500:]}\n\n"
+        f"Latest message: {message}"
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{OPENAI_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": OPENAI_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0,
+                    "max_tokens": 60,
+                },
+            )
+        if response.status_code == 200:
+            choices = response.json().get("choices", [])
+            if choices:
+                rewritten = choices[0]["message"]["content"].strip().strip('"')
+                if rewritten:
+                    return rewritten
+    except (httpx.HTTPError, KeyError, ValueError) as exc:
+        print(f"personal-agent: home command rewrite failed: {exc}")
+
+    return message
 
 
 async def call_home_assistant(message: str, conversation_id: str) -> str:
@@ -447,7 +494,8 @@ async def chat_completions(request: dict, http_request: Request) -> dict[str, An
     if route == "training":
         response_text = await call_training_coach(user_message, conversation_id, history, facts)
     elif route == "home":
-        response_text = await call_home_assistant(user_message, conversation_id)
+        home_command = await rewrite_home_command(user_message, history)
+        response_text = await call_home_assistant(home_command, conversation_id)
     else:
         try:
             openai_messages = build_general_messages(user_message, history, facts)
