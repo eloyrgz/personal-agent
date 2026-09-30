@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f5f5">
+  <title>Open workout in Nike Training Club</title>
+  <style>
+    :root { color-scheme: light dark; font: 16px system-ui, sans-serif; }
+    body { max-width: 36rem; margin: 12vh auto; padding: 0 1.25rem; color: CanvasText; background: Canvas; }
+    h1 { font-size: 1.7rem; }
+    p { line-height: 1.5; }
+    a { display: block; margin: 1rem 0; padding: 1rem; border-radius: .65rem; background: #111; color: #fff; text-align: center; text-decoration: none; font-weight: 700; }
+    a:focus-visible { outline: 3px solid #1688ff; outline-offset: 3px; }
+    .id { overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+  <h1>Nike Training Club workout</h1>
+  <p id="status">Preparing your workout link…</p>
+  <p id="workout-id" class="id"></p>
+  <div id="actions" hidden>
+    <a id="open-intent">Open in NTC</a>
+    <a id="open-native">Try the Nike app link</a>
+  </div>
+  <script>
+    const id = new URLSearchParams(location.search).get("id") || "";
+    const status = document.getElementById("status");
+    const validId = /^[A-Za-z0-9-]{1,128}$/.test(id);
+
+    if (!validId) {
+      status.textContent = "This workout link is missing a valid workout ID.";
+    } else {
+      const workoutId = encodeURIComponent(id);
+      document.getElementById("workout-id").textContent = `Workout ID: ${id}`;
+      document.getElementById("open-intent").href =
+        `intent://x-callback-url/workout?id=${workoutId}#Intent;scheme=niketrainingclub;package=com.nike.ntc;end`;
+      document.getElementById("open-native").href =
+        `niketrainingclub://x-callback-url/workout?id=${workoutId}`;
+      document.getElementById("actions").hidden = false;
+      status.textContent = "Tap a button to open this workout in the Nike Training Club app.";
+    }
+  </script>
+</body>
+</html>
