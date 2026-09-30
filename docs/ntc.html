@@ -16,23 +16,27 @@
   </style>
 </head>
 <body>
-  <h1>Nike Training Club workout</h1>
+  <h1 id="workout-name">Nike Training Club workout</h1>
   <p id="status">Preparing your workout link…</p>
-  <p id="workout-id" class="id"></p>
   <div id="actions" hidden>
     <a id="open-intent">Open in NTC</a>
     <a id="open-native">Try the Nike app link</a>
   </div>
   <script>
     const id = new URLSearchParams(location.search).get("id") || "";
+    const name = new URLSearchParams(location.search).get("name") || "";
     const status = document.getElementById("status");
     const validId = /^[A-Za-z0-9-]{1,128}$/.test(id);
+    const knownWorkoutNames = {
+      "b65a4ab3-64e0-494e-ac79-8f1205f96668": "Cardio & Legs HIIT"
+    };
 
     if (!validId) {
       status.textContent = "This workout link is missing a valid workout ID.";
     } else {
       const workoutId = encodeURIComponent(id);
-      document.getElementById("workout-id").textContent = `Workout ID: ${id}`;
+      document.getElementById("workout-name").textContent =
+        name || knownWorkoutNames[id] || "Nike Training Club workout";
       document.getElementById("open-intent").href =
         `intent://x-callback-url/workout?id=${workoutId}#Intent;scheme=niketrainingclub;package=com.nike.ntc;end`;
       document.getElementById("open-native").href =
