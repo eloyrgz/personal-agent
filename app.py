@@ -1,5 +1,5 @@
 import asyncio
-import hashlib
+from contextlib import asynccontextmanager
 import os
 import re
 import time
@@ -13,10 +13,12 @@ from fastapi.responses import JSONResponse
 
 from fact_extraction import extract_facts
 from memory import build_memory
+from personal_agent_common.conversation import (
+    is_utility_request,
+    resolve_conversation_id,
+)
 
 load_dotenv()
-
-app = FastAPI(title="Personal Agent Router")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
@@ -32,54 +34,16 @@ MEMORY_HISTORY_LIMIT = int(os.getenv("MEMORY_HISTORY_LIMIT", "10"))
 # requests.
 memory = build_memory()
 
-SESSION_HEADER_NAMES = (
-    "x-conversation-id",
-    "x-session-id",
-    "x-openwebui-conversation-id",
-    "x-openwebui-session-id",
-    "conversation-id",
-    "session-id",
-)
 
-# Open WebUI sends auxiliary (non-chat) completions for titles/tags/follow-ups.
-# These carry the full history as a prompt and must not reach any backend agent.
-UTILITY_MARKERS = (
-    "generate a concise",
-    "generate 1-3 broad tags",
-    "suggest 3-5 relevant follow-up",
-    "generate a suitable emoji",
-)
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    yield
+    close = getattr(memory, "close", None)
+    if close is not None:
+        close()
 
 
-def is_utility_request(messages: list) -> bool:
-    for message in messages:
-        content = str(message.get("content", "")).lower()
-        if any(marker in content for marker in UTILITY_MARKERS):
-            return True
-    return False
-
-
-def derive_stable_conversation_id(messages: list) -> str:
-    # Open WebUI resends the full growing history each turn, so the first
-    # user message is a stable anchor for the whole conversation thread.
-    for message in messages:
-        if message.get("role") == "user":
-            digest = hashlib.sha256(str(message.get("content", "")).encode("utf-8")).hexdigest()[:16]
-            return f"personal-agent-{digest}"
-    return f"personal-agent-{uuid.uuid4()}"
-
-
-def resolve_conversation_id(request: dict, http_request: Request, messages: list) -> str:
-    request_conversation_id = request.get("conversation_id")
-    if request_conversation_id:
-        return request_conversation_id
-
-    for header_name in SESSION_HEADER_NAMES:
-        header_value = http_request.headers.get(header_name)
-        if header_value:
-            return header_value
-
-    return derive_stable_conversation_id(messages)
+app = FastAPI(title="Personal Agent Router", lifespan=lifespan)
 
 
 def detect_route(message: str) -> str:
@@ -253,18 +217,30 @@ async def call_openai(messages: list[dict]) -> str:
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(
-            f"{OPENAI_BASE_URL}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {OPENAI_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": OPENAI_MODEL,
-                "messages": messages,
-            },
-        )
+    retryable_statuses = {408, 429, 500, 502, 503, 504}
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
+                    f"{OPENAI_BASE_URL}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {OPENAI_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": OPENAI_MODEL,
+                        "messages": messages,
+                    },
+                )
+        except httpx.RequestError as exc:
+            if attempt == 2:
+                raise HTTPException(status_code=502, detail=f"OpenAI request failed: {exc}") from exc
+            await asyncio.sleep(2**attempt)
+            continue
+
+        if response.status_code not in retryable_statuses or attempt == 2:
+            break
+        await asyncio.sleep(2**attempt)
 
     if response.status_code != 200:
         raise HTTPException(
@@ -468,7 +444,7 @@ async def chat_completions(request: dict, http_request: Request) -> dict[str, An
         )
 
     user_message = str(user_message)
-    conversation_id = resolve_conversation_id(request, http_request, messages)
+    conversation_id = resolve_conversation_id(request, http_request.headers, messages, "personal-agent")
 
     # Prior turns (all routes) from persistent memory; fall back to the
     # history Open WebUI resends if persistence is disabled.

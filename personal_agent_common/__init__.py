@@ -1,0 +1,1 @@
+"""Shared, dependency-free helpers for the personal-agent services."""

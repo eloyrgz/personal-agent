@@ -1,66 +1,20 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-import hashlib
 import httpx
+import sys
 import time
 import uuid
+from pathlib import Path
+
+_PROJECT_ROOT = str(Path(__file__).resolve().parents[1])
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+from personal_agent_common.conversation import is_utility_request, resolve_conversation_id
 
 app = FastAPI()
 
 TRAINING_COACH_URL = "http://127.0.0.1:8000/chat"
-SESSION_HEADER_NAMES = (
-    "x-conversation-id",
-    "x-session-id",
-    "x-openwebui-conversation-id",
-    "x-openwebui-session-id",
-    "conversation-id",
-    "session-id",
-)
-
-# Open WebUI sends auxiliary (non-chat) completions for titles/tags/follow-ups.
-# These carry the full history as a prompt and must not reach the coach.
-UTILITY_MARKERS = (
-    "generate a concise",
-    "generate 1-3 broad tags",
-    "suggest 3-5 relevant follow-up",
-    "generate a suitable emoji",
-)
-
-
-def is_utility_request(messages: list) -> bool:
-    for message in messages:
-        content = str(message.get("content", "")).lower()
-        if any(marker in content for marker in UTILITY_MARKERS):
-            return True
-    return False
-
-
-def derive_stable_conversation_id(messages: list) -> str:
-    # Open WebUI resends the full growing history each turn, so the first
-    # user message is a stable anchor for the whole conversation thread.
-    for message in messages:
-        if message.get("role") == "user":
-            digest = hashlib.sha256(str(message.get("content", "")).encode("utf-8")).hexdigest()[:16]
-            return f"openwebui-{digest}"
-    return f"openwebui-{uuid.uuid4()}"
-
-
-def resolve_conversation_id(request: dict, http_request: Request, messages: list):
-    # Preserve a real ID if Open WebUI or a custom proxy supplies one.
-    request_conversation_id = request.get("conversation_id")
-    if request_conversation_id:
-        return request_conversation_id
-
-    for header_name in SESSION_HEADER_NAMES:
-        header_value = http_request.headers.get(header_name)
-        if header_value:
-            return header_value
-
-    # No explicit session key, so derive a stable one from the conversation
-    # content itself instead of generating a new ID on every turn.
-    return derive_stable_conversation_id(messages)
-
-
 @app.get("/v1/models")
 async def models():
     return {
@@ -114,7 +68,7 @@ async def chat_completions(request: dict, http_request: Request):
             content={"error": "No user message found"}
         )
 
-    conversation_id = resolve_conversation_id(request, http_request, messages)
+    conversation_id = resolve_conversation_id(request, http_request.headers, messages, "openwebui")
 
     payload = {
         "message": user_message,

@@ -2,6 +2,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -f "$SCRIPT_DIR/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "$SCRIPT_DIR/.env"
+    set +a
+fi
+
 services=(training-coach-api.service personal-agent-router.service training-coach-bridge.service training-coach-telegram.service personal-agent-mcp-bridge.service)
 
 wait_for_health() {
@@ -51,7 +59,16 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
 async def main():
-    async with streamablehttp_client("http://127.0.0.1:8102/mcp") as (read_stream, write_stream, _):
+    import os
+
+    headers = {}
+    token = os.getenv("MCP_BRIDGE_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    async with streamablehttp_client(
+        "http://127.0.0.1:8102/mcp", headers=headers
+    ) as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             tools = await session.list_tools()

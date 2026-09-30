@@ -26,8 +26,13 @@ source .venv/bin/activate
 uvicorn app:app --host 0.0.0.0 --port 8101
 ```
 
-For the local systemd-managed stack, register the API and MCP bridge units once
-(the router, Training Coach bridge, and Telegram bot units are already installed):
+The refactoring status, pending work, and deferred improvements are tracked in
+[`docs/refactoring-review.md`](docs/refactoring-review.md).
+The endpoint contracts are documented in
+[`docs/API_CONTRACT.md`](docs/API_CONTRACT.md).
+
+For the local systemd-managed stack, register the two units tracked in this
+repository once:
 
 ```bash
 ln -s "$PWD/training-coach-agent/training-coach-api.service" "$HOME/.config/systemd/user/training-coach-api.service"
@@ -35,6 +40,18 @@ ln -s "$PWD/personal-agent-mcp-bridge.service" "$HOME/.config/systemd/user/perso
 systemctl --user daemon-reload
 systemctl --user enable training-coach-api.service
 systemctl --user enable personal-agent-mcp-bridge.service
+```
+
+The remaining units used by `stack.sh` are installed separately on the host:
+`personal-agent-router.service`, `training-coach-bridge.service`, and
+`training-coach-telegram.service`. They are intentionally not duplicated in
+this repository; verify that they exist with:
+
+```bash
+systemctl --user list-unit-files \
+  personal-agent-router.service \
+  training-coach-bridge.service \
+  training-coach-telegram.service
 ```
 
 Set `MCP_BRIDGE_TOKEN` in `.env` to a long random secret. MCP clients must send
