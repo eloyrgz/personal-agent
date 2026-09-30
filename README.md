@@ -41,7 +41,11 @@ Set `MCP_BRIDGE_TOKEN` in `.env` to a long random secret. MCP clients must send
 it as `Authorization: Bearer <token>`; `/health` remains available without it.
 
 Then run `./stack.sh start`, `./stack.sh restart`, `./stack.sh stop`, or
-`./stack.sh status` from this directory. The script manages the Training Coach
+`./stack.sh status` from this directory. Run `./stack.sh check` to verify that
+all five services are active, their HTTP endpoints answer, and the MCP bridge
+initializes and advertises `ask_personal_agent`. It reports each failing service
+or endpoint separately. This check does not send a prompt to the language model.
+The script manages the Training Coach
 API, Personal Agent router and MCP bridge, Training Coach bridge, and Telegram
 bot; it checks API readiness before starting the dependent services. Open WebUI is a separate
 container and is not restarted by this command. The local router service uses
