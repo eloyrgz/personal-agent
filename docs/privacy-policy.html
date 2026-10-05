@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Privacy Policy - Personal Training Coach</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #202a30;
+      background: #f4f7f5;
+    }
+    body {
+      max-width: 48rem;
+      margin: 0 auto;
+      padding: 3rem 1.25rem 5rem;
+      line-height: 1.65;
+    }
+    main {
+      padding: 2rem clamp(1.25rem, 5vw, 3rem);
+      background: #fff;
+      border: 1px solid #dce5df;
+      border-radius: 8px;
+    }
+    h1, h2 { line-height: 1.25; }
+    h1 { margin-top: 0; font-size: 2rem; }
+    h2 { margin-top: 2rem; font-size: 1.2rem; }
+    a { color: #176b58; }
+    .updated { color: #58675f; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Personal Training Coach · Effective October 5, 2026</p>
+
+    <p>Personal Training Coach is a privately operated integration for one athlete. It connects Intervals.icu activity data with a Telegram bot to send workout summaries and collect optional RPE ratings and notes.</p>
+
+    <h2>Information processed</h2>
+    <p>The integration processes Intervals.icu activity identifiers and workout metrics, including activity type, date, duration, distance, elevation, and training load. It also processes RPE ratings and notes submitted through Telegram, plus Telegram chat and message identifiers needed to deliver notifications and associate feedback with an activity. The coach's conversational features may also process messages and training or injury context that the user chooses to provide.</p>
+
+    <h2>How information is used</h2>
+    <p>Activity data is used to create training summaries, send them to the configured Telegram account, and attach RPE ratings or notes to the corresponding Intervals.icu activity. Activity identifiers, summaries, feedback, and delivery state may be stored in a private Supabase database so notifications can be deduplicated and retried. Pending note prompts expire after 30 minutes.</p>
+
+    <h2>Service providers</h2>
+    <ul>
+      <li><strong>Intervals.icu</strong> provides activity data and receives RPE ratings and notes written back by the integration.</li>
+      <li><strong>Supabase</strong> hosts the private PostgreSQL database used for activity and notification state.</li>
+      <li><strong>Telegram</strong> delivers summaries and receives feedback messages.</li>
+      <li><strong>OpenAI</strong> may process messages and context sent to the separate conversational coaching features. The automated activity notification summary is generated from stored metrics and does not send the webhook payload to an LLM.</li>
+    </ul>
+    <p>These providers process data under their own terms and privacy policies. The integration operator does not sell personal information or use it for advertising.</p>
+
+    <h2>Retention and control</h2>
+    <p>Activity and feedback records remain in the private database while the integration is in use and until the database owner deletes them. Activity data and feedback written back to Intervals.icu are also subject to that service's retention and account controls. The integration is intended for the account owner's personal use and has no separate end-user account system.</p>
+
+    <h2>Security</h2>
+    <p>The webhook receiver validates the secret configured for the Intervals.icu app, filters events to the configured athlete, and accepts only the activity-analysis event used for notifications. Service credentials are configured outside this public site. No security measure can guarantee absolute protection, so credentials should be kept private and rotated if exposed.</p>
+
+    <h2>Privacy requests</h2>
+    <p>The integration is configured for its owner's personal use. The owner can review or remove stored information through the associated Supabase and Intervals.icu accounts and can disable the integration by stopping its services or revoking the app connection. Do not submit activity, health, or account details through public repository discussions or issue trackers.</p>
+  </main>
+</body>
+</html>
