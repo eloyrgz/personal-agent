@@ -56,6 +56,8 @@ systemctl --user list-unit-files \
 
 Set `MCP_BRIDGE_TOKEN` in `.env` to a long random secret. MCP clients must send
 it as `Authorization: Bearer <token>`; `/health` remains available without it.
+Leaving the token empty disables `/mcp` authentication and exposes the public
+endpoint, so only do this temporarily for testing.
 
 Then run `./stack.sh start`, `./stack.sh restart`, `./stack.sh stop`, or
 `./stack.sh status` from this directory. Run `./stack.sh check` to verify that
