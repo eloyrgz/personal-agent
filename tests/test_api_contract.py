@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -50,6 +51,14 @@ class ApiContractTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "cleared")
+
+    def test_notification_worker_requires_exactly_one_allowed_chat(self):
+        with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USER_IDS": "123"}):
+            self.assertEqual(api._notification_chat_id(), 123)
+        with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USER_IDS": "123,456"}):
+            self.assertIsNone(api._notification_chat_id())
+        with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USER_IDS": ""}):
+            self.assertIsNone(api._notification_chat_id())
 
 
 if __name__ == "__main__":
