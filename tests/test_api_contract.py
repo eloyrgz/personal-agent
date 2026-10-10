@@ -86,8 +86,11 @@ class ApiContractTests(unittest.TestCase):
             patch.object(api, "run_weekly_recap_agent", return_value={
                 "summary_heading": "Semana constante",
                 "summary": "Semana sólida.",
-                "trends": "Carga estable.",
-                "next_week_suggestions": "Mantén la recuperación.",
+                "key_findings": [{"title": "Carga estable", "detail": "Sin cambios relevantes."}],
+                "recommendations": [
+                    {"category": "RECUPERACIÓN", "title": "Mantener la recuperación", "detail": "Evita aumentar carga esta semana."},
+                    {"category": "ENTRENAMIENTO", "title": "Entrenar fácil", "detail": "Prioriza el ritmo conversacional."},
+                ],
             }) as generate,
             patch.object(api, "build_weekly_recap_email", return_value=("<html>recap</html>", "recap text")),
             patch.object(api, "_send_weekly_recap_email", return_value="email-123") as send_email,
@@ -232,8 +235,15 @@ class ApiContractTests(unittest.TestCase):
             {
                 "summary_heading": "Carga estable, buen descanso",
                 "summary": "Carga consistente.",
-                "trends": "CTL estable.",
-                "next_week_suggestions": "Prioriza el descanso.",
+                "key_findings": [
+                    {"title": "Sueño mejorando", "detail": "La puntuación se mantiene estable."},
+                    {"title": "Carga <controlada>", "detail": "Sin aumento significativo."},
+                ],
+                "recommendations": [
+                    {"category": "RECUPERACIÓN", "title": "Priorizar el descanso", "detail": "Mantén una rutina regular."},
+                    {"category": "ENTRENAMIENTO", "title": "Mantener sesiones fáciles", "detail": "Entrena a ritmo conversacional."},
+                    {"category": "VIGILAR", "title": "Controlar pulso", "detail": "Observa su evolución."},
+                ],
             },
             {"2026-10-05": {
                 "steps": 8450,
@@ -242,7 +252,7 @@ class ApiContractTests(unittest.TestCase):
                 "sleep_seconds": 25200,
                 "sleep_score": 82,
                 "avg_sleep_hr": 45,
-            }},
+            }, "2026-10-11": {"resting_hr": 52}},
             [
                 {"week_start": "2026-09-28", "last_ctl": 31.7},
                 {
@@ -254,78 +264,70 @@ class ApiContractTests(unittest.TestCase):
             ],
         )
 
-        summary_table = html_content.split("bgcolor='#11151d'", 1)[1].split("</table>", 1)[0]
-        self.assertEqual(summary_table.count("<tr>"), 3)
-        self.assertNotIn("rowspan=", summary_table)
-        summary_rows = summary_table.split("<tr>")[1:]
-        self.assertEqual([row.count("<td") for row in summary_rows], [5, 5, 5])
-        self.assertNotIn("border-right:", summary_table)
-        self.assertNotIn("border-bottom:", summary_table)
-        self.assertIn("Total", summary_table)
-        self.assertIn("6h37m", summary_table)
-        self.assertIn("413", summary_table)
-        self.assertIn("Fitness", summary_table)
-        self.assertIn("36", summary_table)
-        self.assertIn("Fatigue", summary_table)
-        self.assertIn("55", summary_table)
-        self.assertIn("Form", summary_table)
-        self.assertIn("-19", summary_table)
-        self.assertIn("4.3", summary_table)
-        self.assertIn("3918", summary_table)
-        self.assertIn("745m", summary_table)
-        self.assertIn("&#x1F3C3;&#xfe0f;", summary_table)
-        self.assertIn("&#x1F6B4;&#xfe0f;", summary_table)
-        self.assertIn("font-size:21px", summary_table)
-        self.assertIn("style='font-size:16px'>1×</b>", summary_table)
-        self.assertIn("Load</span>", summary_table)
-        self.assertIn("&#9889;&#xfe0f; 340", summary_table)
-        self.assertIn("&#9889;&#xfe0f; 73", summary_table)
-        self.assertNotIn("&#9201;&#xfe0f; 4h44m", summary_table)
-        self.assertIn("Time</span>", summary_table)
-        self.assertIn("4h44m</b>", summary_table)
-        self.assertIn("Distance</span>", summary_table)
-        self.assertIn("9.8 km</b>", summary_table)
-        self.assertNotIn("↑", summary_table)
-        self.assertIn("31.0 km", summary_table)
-        self.assertNotIn("635", summary_table)
-        self.assertIn("font-size:16px", summary_table)
-        self.assertIn("color:#4b9cff", summary_table)
-        self.assertIn("color:#f06a9b", summary_table)
-        self.assertIn("color:#54c878", summary_table)
-        self.assertNotIn("🔥", summary_table)
-        self.assertIn("Lunes</h3>", html_content)
-        self.assertNotIn("Lunes, 05 Oct", html_content)
-        self.assertIn("05 Oct - 11 Oct</p>", html_content)
-        self.assertIn("Semana 41</h1>", html_content)
-        self.assertNotIn("Recap semanal", html_content)
+        self.assertIn("lang='es'", html_content)
+        self.assertIn("TRAINING COACH · INFORME SEMANAL", html_content)
+        self.assertIn(">Resumen de entrenamiento</div>", html_content)
+        self.assertIn("05 OCT – 11 OCT · Semana 41", html_content)
+        self.assertIn("Tiempo total", html_content)
+        self.assertIn("6 h 37 min", html_content)
+        self.assertIn("Distancia · todas las actividades", html_content)
+        self.assertNotIn("Distancia corriendo", html_content)
+        self.assertIn("40,8 km", html_content)
+        metrics_html = html_content.split("Actividad semanal", 1)[0]
+        self.assertNotIn("9,8 km", metrics_html)
+        self.assertIn("Carga semanal", html_content)
+        self.assertNotIn("Carga total", html_content)
+        self.assertIn("data-icon='chart'", html_content)
+        self.assertIn("413", html_content)
+        self.assertIn("Desnivel · todas las actividades", html_content)
+        self.assertNotIn("Desnivel positivo</span>", html_content)
+        self.assertIn("data-icon='mountain'", html_content)
+        self.assertIn("745 m", html_content)
+        self.assertIn("Actividad semanal", html_content)
+        self.assertIn("Running", html_content)
+        self.assertIn("Ciclismo", html_content)
+        self.assertIn("Recuperación", html_content)
+        self.assertIn("Sueño · Lunes", html_content)
+        self.assertIn("7 h 00 min", html_content)
+        self.assertIn("82/100", html_content)
+        self.assertIn("52 bpm", html_content)
+        self.assertIn("Forma (TSB)", html_content)
+        self.assertIn("-19,0", html_content)
+        self.assertIn("Evolución de la semana", html_content)
+        self.assertIn("Puntuación del sueño · escala de 0 a 100", html_content)
+        self.assertIn("Lo más importante", html_content)
+        self.assertIn("Recomendaciones para la próxima semana", html_content)
+        for icon in ("activity", "clock", "run", "bike", "moon", "heart"):
+            self.assertIn(f"data-icon='{icon}'", html_content)
+        self.assertIn("&#x25F7;", html_content)
+        self.assertIn("&#x2197;", html_content)
+        self.assertIn("&#x2661;", html_content)
+        self.assertNotIn("<svg", html_content)
+        self.assertNotIn("&#x1F", html_content)
+        self.assertIn("Sueño mejorando", html_content)
+        self.assertIn("&lt;controlada&gt;", html_content)
+        self.assertIn("padding:11px;background:#1b3331;border-radius:8px", html_content)
+        self.assertNotIn("border-left:3px solid", html_content)
+        self.assertIn("★ RECUPERACIÓN · Priorizar el descanso", text_content)
+        self.assertNotIn("PRIORIDAD", html_content)
+        self.assertNotIn("PRIORIDAD", text_content)
+        self.assertIn("ENTRENAMIENTO", html_content)
+        recommendations_html = html_content.split("Recomendaciones para la próxima semana", 1)[1].split(
+            "TRAINING COACH · Semana", 1
+        )[0]
+        self.assertNotIn("bgcolor='#142b2b'", recommendations_html)
+        self.assertEqual(recommendations_html.count("background:#1b3331;border-radius:8px"), 1)
+        self.assertNotIn("Objetivo para la próxima semana", html_content)
+        self.assertNotIn("7–8 horas", html_content)
+        self.assertNotIn("TENDENCIAS", text_content)
+        self.assertIn("LO MÁS IMPORTANTE", text_content)
+        self.assertIn("RECOMENDACIONES PARA LA PRÓXIMA SEMANA", text_content)
+        self.assertIn("Carga <controlada>", text_content)
+        self.assertIn("max-width:560px", html_content)
         self.assertNotIn("Diario de entrenamientos", html_content)
-        self.assertNotIn("<thead>", html_content)
-        self.assertNotIn("<th", html_content)
-        self.assertIn("background:#11151d", html_content)
-        self.assertNotIn("#e9eef1", html_content)
-        self.assertIn("&lt;tempo&gt;", html_content)
+        self.assertNotIn("Gráficos diarios", html_content)
         self.assertNotIn("Morning Run", html_content)
-        self.assertIn(">18:30</td>", html_content)
-        self.assertIn(">Run &lt;tempo&gt;</td>", html_content)
-        self.assertIn("&#x2764;&#xfe0f; 150", html_content)
-        self.assertNotIn("&#9201;", html_content)
-        self.assertIn("&#x1F642;&#xfe0f; 4/5", html_content)
-        self.assertNotIn("150 bpm", html_content)
-        self.assertNotIn("635 m", html_content)
-        self.assertNotIn("&#8596;", html_content)
-        self.assertIn("aria-label='FC en reposo: 49'", html_content)
-        self.assertIn("RPE 7/10", html_content)
-        self.assertIn("aria-label='Sueño: 7h00m'", html_content)
-        self.assertIn("aria-label='Steps: 8,450'", html_content)
-        self.assertIn("&#x1F463;&#xfe0f;", html_content)
-        self.assertIn("table-layout:fixed", html_content)
-        self.assertIn("width='18%'", html_content)
-        self.assertIn("width='82%'", html_content)
-        activity_row = html_content.split("title='Hora'", 1)[1].split("</tr>", 1)[0]
-        self.assertLess(activity_row.index("title='Distancia'"), activity_row.index("title='Sensación'"))
-        self.assertLess(activity_row.index("title='Sensación'"), activity_row.index("title='RPE'"))
-        self.assertNotIn(">Steps</span>", html_content)
-        self.assertIn("aria-label='FC en reposo: 49'", html_content)
+        self.assertNotIn("<tempo>", html_content)
         self.assertIn("72.4 kg", text_content)
         self.assertIn("49 bpm", text_content)
         self.assertNotIn("Morning Run", text_content)
@@ -333,13 +335,13 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("sueño 7 h 00 min", text_content)
         self.assertIn("puntuación 82", text_content)
         self.assertIn("FC media durante el sueño 45 bpm", text_content)
-        self.assertIn("Gráficos diarios", html_content)
-        self.assertIn("Puntuación del sueño", html_content)
-        self.assertIn("Pasos", html_content)
         self.assertIn("Carga estable, buen descanso", html_content)
         self.assertNotIn("Tu semana, en perspectiva", html_content)
         self.assertIn("pasos", text_content)
-        self.assertIn("CTL estable.", text_content)
+        self.assertNotIn("CTL estable.", text_content)
+        self.assertLess(html_content.index("Recuperación"), html_content.index("Evolución de la semana"))
+        self.assertLess(html_content.index("Evolución de la semana"), html_content.index("Lo más importante"))
+        self.assertLess(html_content.index("Lo más importante"), html_content.index("Recomendaciones para la próxima semana"))
 
     def test_weekly_summary_drops_repeated_heading_and_date(self):
         html_content, text_content = build_weekly_recap_email(
@@ -350,8 +352,11 @@ class ApiContractTests(unittest.TestCase):
             {
                 "summary_heading": "Carga equilibrada",
                 "summary": "Resumen de la semana (28 sep 2026): carga estable y buena continuidad.",
-                "trends": "Sin cambios notables.",
-                "next_week_suggestions": "Mantén la progresión gradual.",
+                "key_findings": [{"title": "Sin cambios notables", "detail": "Carga equilibrada."}],
+                "recommendations": [
+                    {"category": "CARGA", "title": "Mantener la progresión", "detail": "Aumenta de forma gradual."},
+                    {"category": "RECUPERACIÓN", "title": "Seguir descansando", "detail": "Mantén los hábitos actuales."},
+                ],
             },
         )
 
@@ -359,6 +364,20 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("carga estable y buena continuidad.", html_content)
         self.assertNotIn("Resumen de la semana (28 sep 2026)", html_content)
         self.assertIn("carga estable y buena continuidad.", text_content)
+
+    def test_weekly_recap_sections_use_fallback_when_agent_items_are_missing(self):
+        html_content, text_content = build_weekly_recap_email(
+            date.fromisoformat("2026-09-28"),
+            date.fromisoformat("2026-10-04"),
+            [],
+            summarize_activities([]),
+            {"summary_heading": "Semana ligera", "summary": "Semana de recuperación."},
+        )
+
+        self.assertIn("Sin hallazgos destacados", html_content)
+        self.assertIn("No hay datos suficientes para proponer acciones más específicas", html_content)
+        self.assertIn("Sin hallazgos destacados", text_content)
+        self.assertIn("No hay datos suficientes para proponer acciones más específicas", text_content)
 
     def test_activity_totals_are_grouped_by_type(self):
         summary = summarize_activities([
